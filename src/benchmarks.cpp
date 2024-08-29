@@ -91,6 +91,13 @@ void BM_optimizedLinearPTICB4096(benchmark::State& state) {
   }
 }
 
+void BM_optimizedLinearPTSLB4096(benchmark::State& state) {
+  for (auto _ : state) {
+    auto out = optimized::multithresholdLinearPerTensorSL(inp);
+    benchmark::DoNotOptimize(out);
+  }
+}
+
 void BM_referenceB4096(benchmark::State& state) {
   for (auto _ : state) {
     auto out = referenceOuter<24>(inp);
@@ -174,6 +181,7 @@ BENCHMARK(BM_optimizedLEMTB4096)->Iterations(1000);
 BENCHMARK(BM_optimizedLinearPTB4096)->Iterations(1000);
 BENCHMARK(BM_optimizedLinearPTOPB4096)->Iterations(1000);
 BENCHMARK(BM_optimizedLinearPTICB4096)->Iterations(1000);
+BENCHMARK(BM_optimizedLinearPTSLB4096)->Iterations(1000);
 
 BENCHMARK(BM_intclamp)->Iterations(1000);
 BENCHMARK(BM_stdclamp)->Iterations(1000);

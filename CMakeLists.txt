@@ -4,7 +4,7 @@ project(fastmultithreshold)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Ofast -ffast-math -march=native -mtune=native -Wall")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Ofast -ffast-math -march=native -mtune=native -Wall -g")
 set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE}   -O3")
 
 set(default_build_type "Release")
@@ -31,6 +31,9 @@ find_package(OpenMP)
 
 add_executable(benchmarks src/benchmarks.cpp)
 target_link_libraries(benchmarks PRIVATE benchmark::benchmark OpenMP::OpenMP_CXX)
+
+add_executable(minimal src/minimal.cpp)
+target_link_libraries(minimal PRIVATE OpenMP::OpenMP_CXX)
 
 add_executable(test_exe src/test.cpp)
 target_link_libraries(test_exe PRIVATE OpenMP::OpenMP_CXX)

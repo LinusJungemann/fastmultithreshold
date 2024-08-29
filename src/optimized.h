@@ -47,7 +47,18 @@ namespace optimized {
 #pragma omp simd
         for (size_t i = 0; i < size; ++i) {
             const int val = protoRet[i];
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] + 1.0f) + val;
+            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
+        }
+        return ret;
+    }
+
+    std::vector<int8_t> multithresholdLinearPerTensorSL(const std::vector<float>& inp) {
+        const size_t size = inp.size();
+        std::vector<int8_t> ret(size, -128);
+#pragma omp simd
+        for (size_t i = 0; i < size; ++i) {
+            const int val = std::clamp(static_cast<int>((inp[i] - thresholds[0]) * a), 0, 254);
+            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
         }
         return ret;
     }
@@ -67,7 +78,7 @@ namespace optimized {
 #pragma omp simd
         for (size_t i = 0; i < size; ++i) {
             const int val = protoRet[i];
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] + 1.0f) + val;
+            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
         }
         return ret;
     }
@@ -84,7 +95,7 @@ namespace optimized {
 #pragma omp simd
         for (size_t i = 0; i < inp.size(); ++i) {
             const int val = protoRet[i];
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] + 1.0f) + val;
+            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
         }
         return ret;
     }
