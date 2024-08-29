@@ -34,20 +34,15 @@ namespace FinnUtils {
 
 namespace optimized {
 
-    constinit float a = 255 / (thresholds[254] - thresholds[0]);
+    constinit float a = 254 / (thresholds[254] - thresholds[0]);
 
     std::vector<int8_t> multithresholdLinearPerTensor(const std::vector<float>& inp) {
         const size_t size = inp.size();
-        std::vector<int8_t> ret(size, -128);
-        std::vector<int> protoRet(size);
+        std::vector<int8_t> ret(size, -127);
 #pragma omp simd
         for (size_t i = 0; i < size; ++i) {
-            protoRet[i] = std::clamp(static_cast<int>((inp[i] - thresholds[0]) * a), 0, 254);
-        }
-#pragma omp simd
-        for (size_t i = 0; i < size; ++i) {
-            const int val = protoRet[i];
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
+            const float val = std::clamp(inp[i], first_thresholds[0] - 0.5f, first_thresholds[254] + 0.5f);
+            ret[i] += std::clamp(static_cast<int>((val - first_thresholds[0]) * a), 0, 254);
         }
         return ret;
     }

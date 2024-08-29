@@ -21,8 +21,8 @@ std::vector<float> getBatchInputs(size_t batchSize) {
 }
 
 int main() {
-    inp = getBatchInputs(4096);
 
+    inp = getBatchInputs(4096);
     for (size_t i = 0; i < 100000; ++i) {
         auto out = optimized::multithresholdLinearPerTensor(inp);
         std::cout << out[0] << "\n";

@@ -64,7 +64,7 @@ int main() {
     std::cout << std::boolalpha << "B4 Optimized LinearPT equal to expected: " << (expectedResults2 == optimized::multithresholdLinearPerTensor(inputs2)) << "\n";
 
     std::vector<int> out(data.begin(), data.end());
-    std::cout << "OptimizedLEMT Out:" << join(out, ",") << "\n";
+    std::cout << "OptimizedLinearPT Out:" << join(out, ",") << "\n";
 
     std::vector<int> out2(ret2.begin(), ret2.end());
     std::cout << "Naive Out:    " << join(out2, ",") << "\n";
