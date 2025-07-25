@@ -51,28 +51,13 @@ int main() {
     std::cout << std::boolalpha << "B4 Naive equal to expected:          " << (expectedResults2 == multithreshold<24>(inputs2)) << "\n";
 
     auto data = optimized::multithresholdLinearPerTensor(inputs);
-    std::cout << std::boolalpha << "Optimized equal to expected:         " << (expectedResults == optimized::multithreshold<24>(inputs)) << "\n";
-    std::cout << std::boolalpha << "B4 Optimized equal to expected:      " << (expectedResults2 == optimized::multithreshold<24>(inputs2)) << "\n";
 
-    std::cout << std::boolalpha << "Optimized LE equal to expected:      " << (expectedResults == optimized::multithresholdLE<24>(inputs)) << "\n";
-    std::cout << std::boolalpha << "B4 Optimized LE equal to expected:   " << (expectedResults2 == optimized::multithresholdLE<24>(inputs2)) << "\n";
-
-    std::cout << std::boolalpha << "Optimized LEMT equal to expected:    " << (expectedResults == optimized::multithresholdLEMT<24>(inputs)) << "\n";
-    std::cout << std::boolalpha << "B4 Optimized LEMT equal to expected: " << (expectedResults2 == optimized::multithresholdLEMT<24>(inputs2)) << "\n";
-
-    std::cout << std::boolalpha << "Optimized LinearPT equal to expected:    " << (expectedResults == optimized::multithresholdLinearPerTensor(inputs)) << "\n";
-    std::cout << std::boolalpha << "B4 Optimized LinearPT equal to expected: " << (expectedResults2 == optimized::multithresholdLinearPerTensor(inputs2)) << "\n";
+    std::cout << std::boolalpha << "Optimized LinearPT equal to expected:    " << (expectedResults == optimized::multithresholdLinearPerTensorCopilotUnrolledSmallVec(inputs)) << "\n";
+    std::cout << std::boolalpha << "B4 Optimized LinearPT equal to expected: " << (expectedResults2 == optimized::multithresholdLinearPerTensorCopilotUnrolledSmallVec(inputs2)) << "\n";
 
     std::vector<int> out(data.begin(), data.end());
     std::cout << "OptimizedLinearPT Out:" << join(out, ",") << "\n";
 
     std::vector<int> out2(ret2.begin(), ret2.end());
     std::cout << "Naive Out:    " << join(out2, ",") << "\n";
-
-    std::cout << "Clamp Tests:\n";
-    std::cout << "Inp: -1 Out: " << FinnUtils::clamp<0,254>(-1) << "\n";
-    std::cout << "Inp: 0 Out: " << FinnUtils::clamp<0,254>(0) << "\n";
-    std::cout << "Inp: 64 Out: " << FinnUtils::clamp<0,254>(64) << "\n";
-    std::cout << "Inp: 254 Out: " << FinnUtils::clamp<0,254>(254) << "\n";
-    std::cout << "Inp: 255 Out: " << FinnUtils::clamp<0,254>(255) << "\n";
 }

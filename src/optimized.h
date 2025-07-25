@@ -1,190 +1,242 @@
 #ifndef OPTIMIZED
 #define OPTIMIZED
 
-#include <vector>
-#include <functional>
-#include <cstdint>
 #include "thresholds.h"
-#include <iostream>
 #include <algorithm>
-#include <omp.h>
 #include <bit>
-#include <limits>
 #include <cmath>
+#include <cstdint>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <omp.h>
+#include <vector>
 
 namespace FinnUtils {
-    template<typename T>
-    inline constexpr T fastLog2(T value)
-    {
-        return std::bit_width(value) - 1;
-    }
-
-    template<int lower, int upper>
-    inline const int clamp(int val) {
-        int temp = val + upper - std::abs(val - upper);
-        if constexpr (lower == 0) {
-            return static_cast<int>(static_cast<unsigned>(temp + std::abs(temp)) >> 2);
-        }
-        else {
-            constexpr int lowerTimes2 = lower << 1;
-            return static_cast<int>(static_cast<unsigned>(temp + lowerTimes2 + std::abs(temp - lowerTimes2)) >> 2);
-        }
-    }
+template <typename T> inline constexpr T fastLog2(T value) {
+  return std::bit_width(value) - 1;
 }
+} // namespace FinnUtils
 
 namespace optimized {
 
-    constinit float a = 254 / (thresholds[254] - thresholds[0]);
+static constexpr float a = 254 / (thresholds[254] - thresholds[0]);
 
-    std::vector<int8_t> multithresholdLinearPerTensor(const std::vector<float>& inp) {
-        const size_t size = inp.size();
-        std::vector<int8_t> ret(size, -127);
+std::vector<int8_t>
+multithresholdLinearPerTensor(const std::vector<float> &inp) {
+  const size_t size = inp.size();
+  std::vector<int8_t> ret(size, -127);
 #pragma omp simd
-        for (size_t i = 0; i < size; ++i) {
-            const float val = std::clamp(inp[i], first_thresholds[0] - 0.5f, first_thresholds[254] + 0.5f);
-            ret[i] += std::clamp(static_cast<int>((val - first_thresholds[0]) * a), 0, 254);
-        }
-        return ret;
-    }
+  for (size_t i = 0; i < size; ++i) {
+    const float val = std::clamp(inp[i], first_thresholds[0] - 0.5f,
+                                 first_thresholds[254] + 0.5f);
+    ret[i] +=
+        std::clamp(static_cast<int>((val - first_thresholds[0]) * a), 0, 254);
+  }
+  return ret;
+}
 
-    std::vector<int8_t> multithresholdLinearPerTensorSL(const std::vector<float>& inp) {
-        const size_t size = inp.size();
-        std::vector<int8_t> ret(size, -128);
+std::vector<int8_t>
+multithresholdLinearPerTensorCopilot(const std::vector<float> &inp) {
+  const size_t size = inp.size();
+  std::vector<int8_t> ret(size, -127);
+
+  // Pre-compute constants to avoid redundant calculations in the loop
+  constexpr float min_threshold = first_thresholds[0] - 0.5f;
+  constexpr float max_threshold = first_thresholds[254] + 0.5f;
+  constexpr float offset = first_thresholds[0];
+
+  // Get raw pointers for better vectorization
+  int8_t *__restrict ret_data = ret.data();
+  const float *__restrict inp_data = inp.data();
+
+// Use SIMD without alignment directive
 #pragma omp simd
-        for (size_t i = 0; i < size; ++i) {
-            const int val = std::clamp(static_cast<int>((inp[i] - thresholds[0]) * a), 0, 254);
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
-        }
-        return ret;
-    }
+  for (size_t i = 0; i < size; ++i) {
+    // Fused operation to minimize intermediate values
+    const float val =
+        inp_data[i] < min_threshold
+            ? min_threshold
+            : (inp_data[i] > max_threshold ? max_threshold : inp_data[i]);
 
-    std::vector<int8_t> multithresholdLinearPerTensorOP(const std::vector<float>& inp) {
-        const size_t size = inp.size();
-        constexpr size_t padding = 4;
-        //False sharing? Padding von protoRet und evtl. ret als abhilfe?
-        std::vector<int8_t> ret(size, -128);
-        std::vector<int> protoRet(size);
-        std::size_t threadcount = std::min({ 24ul ,static_cast<std::size_t>(omp_get_num_procs()), FinnUtils::fastLog2(inp.size() >> 4) });
-        omp_set_num_threads(threadcount);
-#pragma omp for simd
-        for (size_t i = 0; i < size; ++i) {
-            protoRet[i] = std::clamp(static_cast<int>((inp[i] - thresholds[0]) * a), 0, 254);
-        }
-#pragma omp simd
-        for (size_t i = 0; i < size; ++i) {
-            const int val = protoRet[i];
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
-        }
-        return ret;
-    }
+    // Direct calculation with merged operations
+    ret_data[i] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val - offset) * a), 0, 254));
+  }
+  return ret;
+}
 
-    std::vector<int8_t> multithresholdLinearPerTensorIC(const std::vector<float>& inp) {
-        std::vector<int8_t> ret(inp.size(), -128);
-        std::vector<int> protoRet(inp.size());
-        std::size_t threadcount = std::min({ 24ul ,static_cast<std::size_t>(omp_get_num_procs()), FinnUtils::fastLog2(inp.size() >> 4) });
-        omp_set_num_threads(threadcount);
-#pragma omp for simd
-        for (size_t i = 0; i < inp.size(); ++i) {
-            protoRet[i] = std::clamp(static_cast<int>((inp[i] - thresholds[0]) * a), 0, 254);
-        }
-#pragma omp simd
-        for (size_t i = 0; i < inp.size(); ++i) {
-            const int val = protoRet[i];
-            ret[i] += static_cast<int>(inp[i] - thresholds[val] - static_cast<int>(inp[i] - thresholds[val]) + 1.0f) + val;
-        }
-        return ret;
-    }
+std::vector<int8_t>
+multithresholdLinearPerTensorCopilotUnrolled(const std::vector<float> &inp) {
+  const size_t size = inp.size();
+  std::vector<int8_t> ret(size, -127);
 
-    template<size_t elemcount>
-    std::vector<int8_t> multithreshold(const std::vector<float>& inp) {
-        std::vector<int8_t> ret;
-        ret.reserve(inp.size());
-        for (size_t batchindex = 0; batchindex < inp.size() / elemcount; ++batchindex) {
-            for (int elemindex = 0; elemindex < elemcount; ++elemindex) {
-                int result = -128;
-                result += std::distance(thresholds.begin() + elemindex * 255, std::upper_bound(thresholds.begin() + elemindex * 255, thresholds.begin() + (elemindex + 1) * 255, inp[batchindex * elemcount + elemindex]));
-                ret.emplace_back(result);
-            }
-        }
-        return ret;
-    }
+  // Pre-compute constants
+  constexpr float min_threshold = first_thresholds[0] - 0.5f;
+  constexpr float max_threshold = first_thresholds[254] + 0.5f;
+  constexpr float offset = first_thresholds[0];
 
-    template<size_t elemcount>
-    std::vector<int8_t> multithresholdLE(const std::vector<float>& inp) {
-        std::vector<int8_t> ret(inp.size(), -128);
-        if (inp.size() == elemcount) {
-            for (size_t batchindex = 0; batchindex < inp.size() / elemcount; ++batchindex) {
-                for (int elemindex = 0; elemindex < elemcount; ++elemindex) {
-                    ret[batchindex * elemcount + elemindex] += std::distance(thresholds.begin() + elemindex * 255, std::upper_bound(thresholds.begin() + elemindex * 255, thresholds.begin() + (elemindex + 1) * 255, inp[batchindex * elemcount + elemindex]));
-                }
-            }
-        }
-        else {
-            for (int elemindex = 0; elemindex < elemcount; ++elemindex) {
-                float last = std::numeric_limits<float>::lowest();
-                std::size_t indexLast = 0;
-                for (size_t batchindex = 0; batchindex < inp.size() / elemcount; ++batchindex) {
-                    float curr = inp[batchindex * elemcount + elemindex];
-                    std::size_t indexCurr = 0;
-                    if (curr == last) {
-                        indexCurr = indexLast;
-                    }
-                    else if (curr > last) {
-                        // search [last+1, end)
-                        indexCurr = std::distance(thresholds.begin() + elemindex * 255 + indexLast, std::upper_bound(thresholds.begin() + elemindex * 255 + indexLast, thresholds.begin() + (elemindex + 1) * 255, curr));
-                    }
-                    else {
-                        // search [begin, last)
-                        indexCurr = std::distance(thresholds.begin() + elemindex * 255, std::upper_bound(thresholds.begin() + elemindex * 255, thresholds.begin() + (elemindex + 1) * 255 - (255 - indexLast), curr));
-                    }
-                    ret[batchindex * elemcount + elemindex] += indexCurr;
-                    last = curr;
-                    indexLast = indexCurr;
-                }
-            }
-        }
-        return ret;
-    }
+  // Direct pointers for better performance with small vectors
+  int8_t *__restrict ret_data = ret.data();
+  const float *__restrict inp_data = inp.data();
 
-    template<size_t elemcount>
-    std::vector<int8_t> multithresholdLEMT(const std::vector<float>& inp) {
-        std::vector<int8_t> ret(inp.size(), -128);
-        constexpr auto begin = thresholds.begin();
-        if (inp.size() == elemcount) {
-            for (int elemindex = 0; elemindex < elemcount; ++elemindex) {
-                ret[elemindex] += std::distance(begin + elemindex * 255, std::upper_bound(begin + elemindex * 255, begin + (elemindex + 1) * 255, inp[elemindex]));
-            }
-        }
-        else {
-            std::size_t threadcount = std::min({ elemcount ,static_cast<std::size_t>(omp_get_num_procs()), FinnUtils::fastLog2(inp.size() / elemcount) });
-            omp_set_num_threads(threadcount);
-#pragma omp parallel for
-            for (int elemindex = 0; elemindex < elemcount; ++elemindex) {
-                float last = std::numeric_limits<float>::lowest();
-                std::size_t indexLast = 0;
-                for (size_t batchindex = 0; batchindex < inp.size() / elemcount; ++batchindex) {
-                    float curr = inp[batchindex * elemcount + elemindex];
-                    std::size_t indexCurr = 0;
-                    if (curr == last) {
-                        indexCurr = indexLast;
-                    }
-                    else if (curr > last) {
-                        // search [last+1, end)
-                        indexCurr = std::distance(begin + elemindex * 255 + indexLast, std::upper_bound(begin + elemindex * 255 + indexLast, begin + (elemindex + 1) * 255, curr));
-                    }
-                    else {
-                        // search [begin, last)
-                        indexCurr = std::distance(begin + elemindex * 255, std::upper_bound(begin + elemindex * 255, begin + (elemindex + 1) * 255 - (255 - indexLast), curr));
-                    }
-                    ret[batchindex * elemcount + elemindex] += indexCurr;
-                    last = curr;
-                    indexLast = indexCurr;
-                }
-            }
-        }
-        return ret;
-    }
+  // For small vectors, manual loop unrolling often performs better than SIMD
+  // Process elements in groups of 4 when possible
+  size_t i = 0;
+  for (; i + 3 < size; i += 4) {
+    // Process 4 elements at once to improve instruction-level parallelism
+    float val0 =
+        inp_data[i] < min_threshold
+            ? min_threshold
+            : (inp_data[i] > max_threshold ? max_threshold : inp_data[i]);
+    float val1 = inp_data[i + 1] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 1] > max_threshold ? max_threshold
+                                                        : inp_data[i + 1]);
+    float val2 = inp_data[i + 2] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 2] > max_threshold ? max_threshold
+                                                        : inp_data[i + 2]);
+    float val3 = inp_data[i + 3] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 3] > max_threshold ? max_threshold
+                                                        : inp_data[i + 3]);
 
-};
+    ret_data[i] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val0 - offset) * a), 0, 254));
+    ret_data[i + 1] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val1 - offset) * a), 0, 254));
+    ret_data[i + 2] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val2 - offset) * a), 0, 254));
+    ret_data[i + 3] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val3 - offset) * a), 0, 254));
+  }
+
+  // Handle remaining elements
+  for (; i < size; ++i) {
+    float val =
+        inp_data[i] < min_threshold
+            ? min_threshold
+            : (inp_data[i] > max_threshold ? max_threshold : inp_data[i]);
+    ret_data[i] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val - offset) * a), 0, 254));
+  }
+
+  return ret;
+}
+
+std::vector<int8_t> multithresholdLinearPerTensorCopilotUnrolledSmallVec(
+    const std::vector<float> &inp) {
+  const size_t size = inp.size();
+
+  // Pre-compute constants
+  constexpr float min_threshold = first_thresholds[0] - 0.5f;
+  constexpr float max_threshold = first_thresholds[254] + 0.5f;
+  constexpr float offset = first_thresholds[0];
+  constexpr float scale = a;
+
+  std::vector<int8_t> ret(size, -127);
+  int8_t *__restrict ret_data = ret.data();
+  const float *__restrict inp_data = inp.data();
+
+  // Unroll by 8 for maximum instruction-level parallelism
+  size_t i = 0;
+  for (; i + 7 < size; i += 8) {
+    // Process 8 elements at once with ternary clamping
+    float val0 =
+        inp_data[i] < min_threshold
+            ? min_threshold
+            : (inp_data[i] > max_threshold ? max_threshold : inp_data[i]);
+    float val1 = inp_data[i + 1] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 1] > max_threshold ? max_threshold
+                                                        : inp_data[i + 1]);
+    float val2 = inp_data[i + 2] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 2] > max_threshold ? max_threshold
+                                                        : inp_data[i + 2]);
+    float val3 = inp_data[i + 3] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 3] > max_threshold ? max_threshold
+                                                        : inp_data[i + 3]);
+    float val4 = inp_data[i + 4] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 4] > max_threshold ? max_threshold
+                                                        : inp_data[i + 4]);
+    float val5 = inp_data[i + 5] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 5] > max_threshold ? max_threshold
+                                                        : inp_data[i + 5]);
+    float val6 = inp_data[i + 6] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 6] > max_threshold ? max_threshold
+                                                        : inp_data[i + 6]);
+    float val7 = inp_data[i + 7] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 7] > max_threshold ? max_threshold
+                                                        : inp_data[i + 7]);
+
+    // Store results
+    ret_data[i] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val0 - offset) * scale), 0, 254));
+    ret_data[i + 1] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val1 - offset) * scale), 0, 254));
+    ret_data[i + 2] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val2 - offset) * scale), 0, 254));
+    ret_data[i + 3] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val3 - offset) * scale), 0, 254));
+    ret_data[i + 4] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val4 - offset) * scale), 0, 254));
+    ret_data[i + 5] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val5 - offset) * scale), 0, 254));
+    ret_data[i + 6] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val6 - offset) * scale), 0, 254));
+    ret_data[i + 7] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val7 - offset) * scale), 0, 254));
+  }
+
+  // Handle remaining 4 elements if present
+  if (i + 3 < size) {
+    float val0 =
+        inp_data[i] < min_threshold
+            ? min_threshold
+            : (inp_data[i] > max_threshold ? max_threshold : inp_data[i]);
+    float val1 = inp_data[i + 1] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 1] > max_threshold ? max_threshold
+                                                        : inp_data[i + 1]);
+    float val2 = inp_data[i + 2] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 2] > max_threshold ? max_threshold
+                                                        : inp_data[i + 2]);
+    float val3 = inp_data[i + 3] < min_threshold
+                     ? min_threshold
+                     : (inp_data[i + 3] > max_threshold ? max_threshold
+                                                        : inp_data[i + 3]);
+
+    ret_data[i] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val0 - offset) * scale), 0, 254));
+    ret_data[i + 1] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val1 - offset) * scale), 0, 254));
+    ret_data[i + 2] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val2 - offset) * scale), 0, 254));
+    ret_data[i + 3] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val3 - offset) * scale), 0, 254));
+    i += 4;
+  }
+
+  // Handle final remaining elements (0-3)
+  for (; i < size; ++i) {
+    float val =
+        inp_data[i] < min_threshold
+            ? min_threshold
+            : (inp_data[i] > max_threshold ? max_threshold : inp_data[i]);
+    ret_data[i] += static_cast<int8_t>(
+        std::clamp(static_cast<int>((val - offset) * scale), 0, 254));
+  }
+
+  return ret;
+}
+}; // namespace optimized
 
 #endif // OPTIMIZED
